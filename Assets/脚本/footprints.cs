@@ -1,9 +1,11 @@
+using Unity.Mathematics;
 using UnityEngine;
 
 public class footprints : MonoBehaviour
 {
     public ParticleSystem footPS;       // 粒子系统
     public float emitDistance = 0.5f;   // 每移动多远发射一次
+    public Transform footcam;
 
     private Vector3 lastEmitPos;
 
@@ -15,6 +17,9 @@ public class footprints : MonoBehaviour
 
     void Update()
     {
+        float3 position = transform.position;
+        position.y = 50;
+        footcam.position = position;
         if (Vector3.Distance(transform.position, lastEmitPos) > emitDistance)
         {
             lastEmitPos = transform.position;

@@ -1,16 +1,16 @@
-Shader "Custom/snowshader"
+ï»¿Shader "Custom/snowshader"
 {
     Properties
     {
         [MainTexture] _BaseMap("Base Map", 2D) = "white" {}
-        [Normal]_NormalMap("Normal Map",2D) = "bump" {}
+        [Normal]_NormalMap("Normal Map", 2D) = "bump" {}
         [NoScaleOffset] _AOMap("AO Map", 2D) = "white" {}
-        _footprintsMap("foot Map",2D)="black"{}
-        _Roungness("roungness",Range(0,1))=0.1
-
+        _footprintsMap("foot Map", 2D) = "black" {}
+        _Roungness("roungness", Range(0, 1)) = 0.1
+        _DepthScale("Depth Scale", Range(0, 2)) = 0.5
+        _MaxDepth("Max Depth (m)", Range(0, 1)) = 0.2
     }
 
-    
     SubShader
     {
         Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" }
@@ -34,15 +34,19 @@ Shader "Custom/snowshader"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/GlobalIllumination.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
-                float _Roungness;
+            float _Roungness;
+            float _DepthScale;
+            float _MaxDepth;
             CBUFFER_END
+
             float4 _HeightMapCameraParams;
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
-                float3 normal:NORMAL;
-                float4 tangentOS:TANGENT;
-                float2 uv : TEXCOORD0;
+                float3 normal     : NORMAL;
+                float4 tangentOS  : TANGENT;
+                float2 uv         : TEXCOORD0;
             };
 
             struct Varyings
@@ -50,16 +54,15 @@ Shader "Custom/snowshader"
                 float4 positionCS : SV_POSITION;
                 float2 uv         : TEXCOORD0;
                 float3 positionWS : TEXCOORD1;
-                float3 normalOS   : TEXCOORD2;   // ÎïÌå¿Õ¼ä·¨Ïß
-                float4 tangentOS  : TEXCOORD3;   // ÎïÌå¿Õ¼äÇĞÏß£¨w ÊÇ¸±ÇĞÏß·ûºÅ£©
-                noperspective float2 screenUV : TEXCOORD5;//²»×öÍ¸ÊÓ²åÖµ
+                float3 normalOS   : TEXCOORD2;   // ç‰©ä½“ç©ºé—´æ³•çº¿
+                float4 tangentOS  : TEXCOORD3;   // ç‰©ä½“ç©ºé—´åˆ‡çº¿ï¼ˆw æ˜¯å‰¯åˆ‡çº¿ç¬¦å·ï¼‰
+                noperspective float2 screenUV : TEXCOORD5;
             };
 
-            // Ï¸·ÖÒò×Ó
             struct TessFactors
             {
-                float edge[3] : SV_TessFactor;      // ÈıÌõ±ßµÄÏ¸·ÖµÈ¼¶
-                float inside : SV_InsideTessFactor; // ÄÚ²¿Ï¸·ÖµÈ¼¶
+                float edge[3] : SV_TessFactor;
+                float inside  : SV_InsideTessFactor;
             };
 
             TEXTURE2D(_BaseMap);
@@ -73,12 +76,8 @@ Shader "Custom/snowshader"
             TEXTURE2D(_TerrainHeightMap);
             SAMPLER(sampler_TerrainHeightMap);
 
-            float3 LambertBRDF(float3 albedo)
-            {
-                return albedo / PI;   // ³ıÒÔ PI ÊÇÎªÁËÄÜÁ¿ÊØºã
-            }
+            // ---------------- BRDF ----------------
 
-            // È«²¿¼Ó My_ Ç°×º
             float My_D_GGX(float NdotH, float roughness)
             {
                 float alpha  = roughness * roughness;
@@ -103,11 +102,6 @@ Shader "Custom/snowshader"
                 return My_G1_SchlickGGX(NdotV, roughness) * My_G1_SchlickGGX(NdotL, roughness);
             }
 
-            float3 My_ComputeF0(float3 albedo, float metallic)
-            {
-                return lerp(0.04, albedo, metallic);
-            }
-
             float3 My_CookTorrance(float3 N, float3 V, float3 L,
             float3 radiance,
             float3 albedo, float metallic, float roughness)
@@ -130,25 +124,28 @@ Shader "Custom/snowshader"
                 return (diffuse + specular) * radiance * NdotL;
             }
 
+            // ---------------- ç»†åˆ† ----------------
+
             float CalcTessFactor(float3 worldPos)
             {
                 float dist = distance(_WorldSpaceCameraPos, worldPos);
-                // ½ü´¦Ï¸·Ö¶à£¬Ô¶´¦Ï¸·ÖÉÙ
-                return lerp(8.0f, 2.0f, saturate(dist / 50.0f));
+                return lerp(8.0, 2.0, saturate(dist / 50.0));
             }
 
-            TessFactors PatchConstantFunc(InputPatch<Varyings, 3> patch){//
+            TessFactors PatchConstantFunc(InputPatch<Varyings, 3> patch)
+            {
                 TessFactors f;
-                float3 p0=patch[0].positionWS;
-                float3 p1=patch[1].positionWS;
-                float3 p2=patch[2].positionWS;
-                // ÈıÌõ±ßµÄÏ¸·ÖÒò×ÓÈ¡Á½¶ËµãµÄ½ÏĞ¡Öµ£¬±£Ö¤±ß½çÒ»ÖÂ
-                f.edge[0] = min(CalcTessFactor(p1), CalcTessFactor(p2)); // p0 µÄ¶Ô±ß (p1-p2)
-                f.edge[1] = min(CalcTessFactor(p2), CalcTessFactor(p0)); // p1 µÄ¶Ô±ß (p2-p0)
-                f.edge[2] = min(CalcTessFactor(p0), CalcTessFactor(p1)); // p2 µÄ¶Ô±ß (p0-p1)
-                // ÄÚ²¿Òò×ÓÈ¡Èı¸öµãµÄ×î´óÖµ
-                f.inside = max(max(CalcTessFactor(p0), CalcTessFactor(p1)), CalcTessFactor(p2));
+                float3 p0 = patch[0].positionWS;
+                float3 p1 = patch[1].positionWS;
+                float3 p2 = patch[2].positionWS;
 
+                // ä¸‰æ¡è¾¹çš„ç»†åˆ†å› å­å–ä¸¤ç«¯ç‚¹çš„è¾ƒå°å€¼ï¼Œä¿è¯ç›¸é‚» patch è¾¹ç•Œä¸€è‡´
+                f.edge[0] = min(CalcTessFactor(p1), CalcTessFactor(p2)); // p0 çš„å¯¹è¾¹ (p1-p2)
+                f.edge[1] = min(CalcTessFactor(p2), CalcTessFactor(p0)); // p1 çš„å¯¹è¾¹ (p2-p0)
+                f.edge[2] = min(CalcTessFactor(p0), CalcTessFactor(p1)); // p2 çš„å¯¹è¾¹ (p0-p1)
+
+                // å†…éƒ¨å› å­å–ä¸‰ä¸ªç‚¹çš„æœ€å¤§å€¼
+                f.inside = max(max(CalcTessFactor(p0), CalcTessFactor(p1)), CalcTessFactor(p2));
                 return f;
             }
 
@@ -158,34 +155,34 @@ Shader "Custom/snowshader"
 
                 VertexPositionInputs posInputs = GetVertexPositionInputs(IN.positionOS.xyz);
                 OUT.positionCS = posInputs.positionCS;
-                OUT.positionWS = posInputs.positionWS;     
-                OUT.uv = IN.uv;
-               
-                // Ö»´«µİÎïÌå¿Õ¼äµÄ TBN Èı¸öÖá£¬²»×öÊÀ½ç¿Õ¼ä±ä»»
-                OUT.normalOS = IN.normal;
+                OUT.positionWS = posInputs.positionWS;
+                OUT.uv         = IN.uv;
+
+                OUT.normalOS  = IN.normal;
                 OUT.tangentOS = IN.tangentOS;
-                OUT.screenUV=posInputs.positionCS.xy / posInputs.positionCS.w * 0.5 + 0.5;
+                OUT.screenUV  = posInputs.positionCS.xy / posInputs.positionCS.w * 0.5 + 0.5;
+
                 return OUT;
             }
 
-            [domain("tri")]                          // ´¦ÀíÈı½ÇĞÎpatch
-            [partitioning("fractional_odd")]         // ·ÖÊıÏ¸·Ö£¬±£Ö¤²»Í¬µÈ¼¶¼äÆ½»¬¹ı¶É
-            [outputtopology("triangle_cw")]          // Êä³öÈı½ÇĞÎ£¬Ë³Ê±Õë²øÈÆ
-            [outputcontrolpoints(3)]                 // Êä³ö3¸ö¿ØÖÆµã
-            [patchconstantfunc("PatchConstantFunc")] // Ö¸¶¨Ï¸·ÖÒò×Ó¼ÆËãº¯Êı
+            [domain("tri")]
+            [partitioning("fractional_odd")]
+            [outputtopology("triangle_cw")]
+            [outputcontrolpoints(3)]
+            [patchconstantfunc("PatchConstantFunc")]
             Varyings HullProgram(InputPatch<Varyings, 3> patch, uint id : SV_OutputControlPointID)
             {
                 return patch[id];
             }
 
             [domain("tri")]
-            Varyings DomainProgram(TessFactors factors, 
-            OutputPatch<Varyings, 3> patch, 
+            Varyings DomainProgram(TessFactors factors,
+            OutputPatch<Varyings, 3> patch,
             float3 baryCoords : SV_DomainLocation)
             {
                 Varyings OUT;
 
-                // 1. ²åÖµËùÓĞ×Ö¶Î
+                // 1. æ’å€¼æ‰€æœ‰å­—æ®µ
                 float3 positionWS = patch[0].positionWS * baryCoords.x +
                 patch[1].positionWS * baryCoords.y +
                 patch[2].positionWS * baryCoords.z;
@@ -202,102 +199,112 @@ Shader "Custom/snowshader"
                 patch[1].screenUV * baryCoords.y +
                 patch[2].screenUV * baryCoords.z;
 
-                // 2. UVÓ³Éä
-                float2 rangeMin = _HeightMapCameraParams.xy - _HeightMapCameraParams.z;
+                // 2. ä¸–ç•Œ XZ â†’ è„šå°çº¹ç† UV
+                float2 rangeMin  = _HeightMapCameraParams.xy - _HeightMapCameraParams.z;
                 float2 rangeSize = _HeightMapCameraParams.z * 2.0;
-                float2 footUV = (positionWS.xz - rangeMin) / rangeSize;
+                float2 footUV    = (positionWS.xz - rangeMin) / rangeSize;
 
-                // ³¬³ö·¶Î§£ºÖ±½ÓÔ­ÑùÊä³ö
+                // 3. è¶Šç•Œï¼šåŸæ ·è¾“å‡ºï¼Œä¸é‡‡æ ·ã€ä¸ä½ç§»ã€ä¸æ‰°åŠ¨
                 if (any(footUV < 0.0) || any(footUV > 1.0))
                 {
-                    OUT.positionWS = positionWS;
-                    OUT.uv = uv;
-                    OUT.positionCS = TransformWorldToHClip(positionWS);
-                    OUT.normalOS = normalOS;
-                    OUT.screenUV = screenUV;
-                    OUT.tangentOS = tangentOS;
+                    OUT.positionWS  = positionWS;
+                    OUT.uv          = uv;
+                    OUT.positionCS  = TransformWorldToHClip(positionWS);
+                    OUT.normalOS    = normalOS;
+                    OUT.tangentOS   = tangentOS;
+                    OUT.screenUV    = screenUV;
                     return OUT;
                 }
 
-                // 3. ½ÅÓ¡Í¼µÄ texel ÊÀ½ç³ß´ç
+                // 4. è„šå° texel å¯¹åº”çš„ä¸–ç•Œå°ºå¯¸ï¼ˆä¸çº¹ç† 1024Ã—1024 å¯¹åº”ï¼‰
                 float2 footTexelSize = rangeSize / 1024.0;
 
-                // 4. ²ÉÑù½ÅÓ¡Í¼£ºÖĞĞÄ + ËÄÁÚÓò
+                // 5. é‡‡æ ·è„šå°å›¾ï¼šä¸­å¿ƒ + å››é‚»åŸŸï¼ˆdomain é˜¶æ®µå¿…é¡»æ˜¾å¼ LOD 0ï¼‰
                 float footCenter = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV, 0).r;
                 float footL = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(footTexelSize.x, 0), 0).r;
                 float footR = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(footTexelSize.x, 0), 0).r;
                 float footD = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(0, footTexelSize.y), 0).r;
                 float footU = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(0, footTexelSize.y), 0).r;
 
-                // 5. Î»ÒÆ¶¥µã£¨½ÅÓ¡¸Ä±ä¸ß¶È£©
-                positionWS.y -= footCenter*0.5;
+                // 6. æ ‡å‡†é«˜åº¦åœºæ¢¯åº¦ï¼šhx = âˆ‚h/âˆ‚xï¼Œhz = âˆ‚h/âˆ‚zï¼ˆå•ä½ï¼šç±³/ç±³ï¼‰
+                float hx = (footR - footL) / (2.0 * footTexelSize.x);
+                float hz = (footU - footD) / (2.0 * footTexelSize.y);
 
-                // 6. ¼ÆËã½ÅÓ¡´øÀ´µÄ¸ß¶ÈÌİ¶È£¨Ã»²È½ÅÓ¡µÄµØ·½ dhdx = 0, dhdz = 0£©
-                float dhdx = -(footR - footL) / (2.0 * footTexelSize.x);
-                float dhdz = -(footU - footD) / (2.0 * footTexelSize.y);
-
-                // 7. ½«½ÅÓ¡Ìİ¶ÈÖ±½Óµş¼Óµ½Ô­Ä£ĞÍÆ½»¬·¨ÏßÉÏ£¨È¥µôÔ­À´µÄ _TerrainHeightMap ²ÉÑù£©
-                float3 normNormalOS = normalize(normalOS);
+                // 7. åŸæ³•çº¿ / åˆ‡çº¿ï¼ˆä¸–ç•Œç©ºé—´ï¼‰ï¼Œå¹¶æ„é€ æ­£äº¤å•ä½åŸº T'ã€B'ã€N0
+                float3 normNormalOS  = normalize(normalOS);
                 float3 normTangentOS = normalize(tangentOS.xyz);
 
-                float3 baseNormalWS = TransformObjectToWorldNormal(normNormalOS, true);
-                // ÔÚÔ­µØĞÎ·¨Ïß»ù´¡ÉÏµş¼Ó½ÅÓ¡Ğ±ÂÊ (-dhdx, 0, -dhdz)
-                float3 N_ws = normalize(baseNormalWS + float3(-dhdx, 0.0, -dhdz) * max(baseNormalWS.y, 1e-4));
+                float3 N0_ws = TransformObjectToWorldNormal(normNormalOS, true);
+                float3 T_ws  = TransformObjectToWorldDir(normTangentOS, true);
 
-                // 8. ×ª»ØÎïÌå¿Õ¼ä£¬²¢½ö°´·¨Ïß±ä»¯Á¿ (newNormalOS - normNormalOS) Æ«×ªÇĞÏß
-                // µ± dhdx=0, dhdz=0 Ê±£¬newNormalOS == normNormalOS£¬newTangentOS == normTangentOS£¬Óë¿òÍâ 100% Ò»ÖÂ
-                float3 newNormalOS = TransformWorldToObjectNormal(N_ws, true);
-                float3 newTangentOS = normalize(normTangentOS - dot(normTangentOS, newNormalOS - normNormalOS) * newNormalOS);
+                // Gram-Schmidtï¼šä¿è¯ T_ws âŠ¥ N0_ws
+                T_ws = normalize(T_ws - dot(T_ws, N0_ws) * N0_ws);
 
-                // 9. Êä³ö
-                OUT.positionWS = positionWS;
-                OUT.positionCS = TransformWorldToHClip(positionWS);
-                OUT.uv = uv;
-                OUT.normalOS = newNormalOS;
-                OUT.tangentOS = float4(newTangentOS, tangentOS.w);
-                OUT.screenUV = screenUV;
+                // å‰¯åˆ‡çº¿ï¼šå•ä½æ­£äº¤å‘é‡å‰ä¹˜ï¼Œé•¿åº¦ = 1ï¼›w åªå–ç¬¦å·
+                float tangentSign = (tangentOS.w >= 0.0) ? 1.0 : -1.0;
+                float3 B_ws = cross(N0_ws, T_ws) * tangentSign;
+
+                // 8. ä½ç§»ï¼šæ²¿åŸæ³•çº¿å¾€ä¸‹å‹ï¼Œclamp é˜²æ­¢å¤§ scale ä¸‹ä¸‰è§’å½¢ç¿»è½¬
+                float depth = min(footCenter * _DepthScale, _MaxDepth);
+                positionWS -= N0_ws * depth;
+
+                // 9. æ³•çº¿æ‰°åŠ¨ï¼šN âˆ N0 + sÂ·(hxÂ·T' + hzÂ·B')
+                //    é›¶æ¢¯åº¦æ—¶ä¸¥æ ¼é€€åŒ–ä¸º N0
+                float3 perturbation = hx * T_ws + hz * B_ws;
+                float3 N_ws = normalize(N0_ws + perturbation * _DepthScale);
+
+                // 10. è½¬å›ç‰©ä½“ç©ºé—´ï¼›åˆ‡çº¿ä»…æŒ‰æ³•çº¿å˜åŒ–é‡åè½¬ï¼Œé›¶æ‰°åŠ¨æ—¶ä¸¥æ ¼ä¸å˜
+                float3 newNormalOS  = TransformWorldToObjectNormal(N_ws, true);
+                float3 newTangentOS = normalize(normTangentOS
+                - dot(normTangentOS, newNormalOS - normNormalOS) * newNormalOS);
+
+                // 11. è¾“å‡º
+                OUT.positionWS  = positionWS;
+                OUT.positionCS  = TransformWorldToHClip(positionWS);
+                OUT.uv          = uv;
+                OUT.normalOS    = newNormalOS;
+                OUT.tangentOS   = float4(newTangentOS, tangentOS.w);
+                OUT.screenUV    = screenUV;
 
                 return OUT;
             }
 
             half4 frag(Varyings IN) : SV_Target
             {
-                //·¨Ïß
-                // 1. ¹éÒ»»¯ÎïÌå¿Õ¼ä·¨ÏßºÍÇĞÏß£¨²åÖµºó³¤¶È¿ÉÄÜ²»ÊÇ 1£©
-                float3 normalOS = normalize(IN.normalOS);
+                // 1. å½’ä¸€åŒ–ç‰©ä½“ç©ºé—´æ³•çº¿å’Œåˆ‡çº¿
+                float3 normalOS  = normalize(IN.normalOS);
                 float3 tangentOS = normalize(IN.tangentOS.xyz);
 
-                // 2. Ëã¸±ÇĞÏß£¨ÎïÌå¿Õ¼ä£©
+                // 2. ç‰©ä½“ç©ºé—´å‰¯åˆ‡çº¿
                 float3 bitangentOS = cross(normalOS, tangentOS) * IN.tangentOS.w;
 
-                // 3. ¹¹½¨ÎïÌå¿Õ¼ä TBN ¾ØÕó
+                // 3. ç‰©ä½“ç©ºé—´ TBN
                 float3x3 TBN_object = float3x3(tangentOS, bitangentOS, normalOS);
 
-                // 4. ²ÉÑù·¨ÏßÌùÍ¼£¬µÃµ½ÇĞÏß¿Õ¼ä·¨Ïß
+                // 4. æ³•çº¿è´´å›¾ï¼šåˆ‡çº¿ç©ºé—´ â†’ ç‰©ä½“ç©ºé—´ â†’ ä¸–ç•Œç©ºé—´
                 half4 normalSample = SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, IN.uv);
-                half3 normalTS = UnpackNormal(normalSample);
+                half3 normalTS     = UnpackNormal(normalSample);
+                float3 normalObject = normalize(mul(normalTS, TBN_object));
+                float3 normalWS     = normalize(TransformObjectToWorldNormal(normalObject));
 
-                // 5. ÇĞÏß¿Õ¼ä ¡ú ÎïÌå¿Õ¼ä
-                float3 normalObject = mul(normalTS, TBN_object);
-                normalObject = normalize(normalObject);
+                // 5. ä¸»å…‰ä¸é˜´å½±
+                float4 shadowcoord = TransformWorldToShadowCoord(IN.positionWS);
+                Light mainLight = GetMainLight(shadowcoord);
+                half shadow = mainLight.shadowAttenuation;
 
-                // 6. ÎïÌå¿Õ¼ä ¡ú ÊÀ½ç¿Õ¼ä£¨·¨ÏßÓÃÄæ×ªÖÃ¾ØÕó£©
-                float3 normalWS = TransformObjectToWorldNormal(normalObject);
-                normalWS = normalize(normalWS);
-                float4 shadowcoord=TransformWorldToShadowCoord(IN.positionWS);
-                Light mainLight=GetMainLight(shadowcoord);
-                half shadow=mainLight.shadowAttenuation;
-                float3 V=normalize(GetWorldSpaceViewDir(IN.positionWS));
-                float3 L=normalize(mainLight.direction);
-                float3 radiance=mainLight.color;
-                float3 basecolor=SAMPLE_TEXTURE2D(_BaseMap,sampler_BaseMap,IN.uv);
-                float3 color=My_CookTorrance(normalWS,V,L,radiance,basecolor,0,_Roungness)*shadow;
-                //IBL¹â
+                float3 V = normalize(GetWorldSpaceViewDir(IN.positionWS));
+                float3 L = normalize(mainLight.direction);
+                float3 radiance = mainLight.color;
+                float3 basecolor = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv).rgb;
+
+                float3 color = My_CookTorrance(normalWS, V, L, radiance, basecolor, 0, _Roungness) * shadow;
+
+                // 6. IBL
                 float3 reflectVector = reflect(-V, normalWS);
-                float mark=SAMPLE_TEXTURE2D(_AOMap,sampler_AOMap,IN.uv).r;
-                color+=GlossyEnvironmentReflection(reflectVector,IN.positionWS,_Roungness,1.0,IN.screenUV)*mark;
-                return float4(color,1.0f);
+                float ao = SAMPLE_TEXTURE2D(_AOMap, sampler_AOMap, IN.uv).r;
+                color += GlossyEnvironmentReflection(reflectVector, IN.positionWS, _Roungness, 1.0, IN.screenUV) * ao;
 
+                return float4(color, 1.0);
             }
             ENDHLSL
         }
@@ -334,12 +341,10 @@ Shader "Custom/snowshader"
 
             float4 frag(Varyings IN) : SV_Target
             {
-                // Êä³ö¸ß¶Èµ½RÍ¨µÀ
                 float height = IN.positionWS.y;
                 return float4(height, 0, 0, 1);
             }
             ENDHLSL
         }
-
     }
 }

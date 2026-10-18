@@ -48,7 +48,6 @@ public class heighmapRenderPass : ScriptableRenderPass
             builder.UseRendererList(passData.rendererList);
             builder.AllowPassCulling(false);
 
-            // 替换 heighmapRenderPass.cs 中的 SetRenderFunc 部分：
             builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
             {
                 // 清空渲染目标为黑色

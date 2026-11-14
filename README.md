@@ -1,4 +1,4 @@
-# PRB-render-by-unity
+# Terrain-interaction-by-unity-URP
 
 基于 Unity 6 和 URP 的雪地交互演示项目。角色移动时通过粒子和正交相机生成脚印纹理，雪地着色器读取纹理，通过曲面细分、顶点位移和法线重建表现脚印凹陷。
 
@@ -21,7 +21,7 @@
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/lsx113/PRB-render-by-unity.git
+   git clone https://github.com/lsx113/Terrain-interaction-by-unity-URP.git
    ```
 
 2. 在 Unity Hub 中添加仓库根目录，使用 **6000.3.10f1** 打开，等待资源导入与包解析完成。

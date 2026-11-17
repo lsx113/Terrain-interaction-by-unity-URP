@@ -8,7 +8,7 @@
         _footprintsMap("foot Map", 2D) = "black" {}
         _Roungness("roungness", Range(0, 1)) = 0.1
         _DepthScale("Depth Scale", Range(0, 2)) = 0.5
-        _MaxDepth("Max Depth (m)", Range(0, 1)) = 0.2
+        _MaxDepth("Max Depth (m)", Range(0, 2)) = 0.2
     }
 
     SubShader
@@ -216,19 +216,22 @@
                     return OUT;
                 }
 
-                // 4. 脚印 texel 对应的世界尺寸（与纹理 1024×1024 对应）
-                float2 footTexelSize = rangeSize / 1024.0;
+                // 4. 采样步长：世界空间固定 0.03 米，换算成 UV 偏移
+                //    UV 跨度 1 对应 rangeSize 米，所以 1 米 = 1/rangeSize 的 UV
+                float footStepMeters = 0.03;
+                float2 footStepUV = footStepMeters / rangeSize;
 
                 // 5. 采样脚印图：中心 + 四邻域（domain 阶段必须显式 LOD 0）
                 float footCenter = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV, 0).r;
-                float footL = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(footTexelSize.x, 0), 0).r;
-                float footR = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(footTexelSize.x, 0), 0).r;
-                float footD = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(0, footTexelSize.y), 0).r;
-                float footU = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(0, footTexelSize.y), 0).r;
+                float footL = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(footStepUV.x, 0), 0).r;
+                float footR = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(footStepUV.x, 0), 0).r;
+                float footD = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV - float2(0, footStepUV.y), 0).r;
+                float footU = SAMPLE_TEXTURE2D_LOD(_footprintsMap, sampler_footprintsMap, footUV + float2(0, footStepUV.y), 0).r;
 
-                // 6. 标准高度场梯度：hx = ∂h/∂x，hz = ∂h/∂z（单位：米/米）
-                float hx = (footR - footL) / (2.0 * footTexelSize.x);
-                float hz = (footU - footD) / (2.0 * footTexelSize.y);
+                // 6. 标准高度场梯度：hx = ∂h/∂x，hz = ∂h/∂z
+                //    分母 = 两个采样点之间的世界距离 = 2 × 步长（米）
+                float hx = (footR - footL) / (2.0 * footStepMeters);
+                float hz = (footU - footD) / (2.0 * footStepMeters);
 
                 // 7. 原法线 / 切线（世界空间），并构造正交单位基 T'、B'、N0
                 float3 normNormalOS  = normalize(normalOS);
